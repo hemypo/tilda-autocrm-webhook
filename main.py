@@ -69,4 +69,7 @@ def tilda_webhook():
         return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80)
+    # Получаем порт из переменной окружения платформы, 
+    # либо используем 5000 для локального тестирования
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
