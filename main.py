@@ -4,24 +4,21 @@ import requests
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Загружаем переменные из .env при локальном запуске
 load_dotenv()
 
 app = Flask(__name__)
 
 # ==========================================
-# НАСТРОЙКИ API ИЗ ОКРУЖЕНИЯ (.env / Amvera)
+# НАСТРОЙКИ
 # ==========================================
-CRM_BASE_URL = os.getenv("CRM_BASE_URL", "https://avtomag.autocrm.ru/yii/api")
-API_KEY = os.getenv("API_KEY", "ВАШ_КЛЮЧ_ПО_УМОЛЧАНИЮ_ЕСЛИ_НУЖНО")
+CRM_BASE_URL = os.getenv("CRM_BASE_URL", "https://avtomag.autocrm.ru/yii/api").strip()
+API_KEY = os.getenv("API_KEY", "").strip()
 
-# Обязательные бизнес-поля (оставляем в коде):
 SALON_ID = 1
 TYPE = 11
 REQUEST_TYPE_ID = 1
 SOURCE_ID = 1
 
-# Словарь: "Модель из Тильды" : ID в CRM
 CARS_DICTIONARY = {
     "HAVAL F7x": {"brand_id": 152, "model_id": 17458},
     "HAVAL F7": {"brand_id": 152, "model_id": 18528}, 
@@ -33,20 +30,20 @@ CARS_DICTIONARY = {
     "GWM POER": {"brand_id": 152, "model_id": 19584}
 }
 
-# Формируем заголовки с ключом из окружения
-HEADERS = {
-    "Authorization": f"Bearer {API_KEY}",
-    "Content-Type": "application/json",
-    "Accept": "application/json"
-}
+def get_headers():
+    return {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
 
 # ==========================================
-# ОСНОВНОЙ ВЕБХУК ДЛЯ ТИЛЬДЫ
+# ОСНОВНОЙ ВЕБХУК
 # ==========================================
 @app.route('/tilda-webhook', methods=['POST'])
 def tilda_webhook():
     if not API_KEY:
-        print("Ошибка: API_KEY не задан в переменных окружения!")
+        print("ВНИМАНИЕ: API_KEY пустой! Проверьте переменные окружения в Amvera.")
 
     data = request.get_json() if request.is_json else request.form.to_dict()
     if not data:
@@ -80,30 +77,30 @@ def tilda_webhook():
         else:
             payload["comment"] += f"\nКлиент выбрал авто: {tilda_model}"
 
-    # Используем базовый URL из окружения
     api_url = f"{CRM_BASE_URL}/leads/request"
     
     try:
-        requests.post(api_url, headers=HEADERS, json=payload, timeout=10)
+        requests.post(api_url, headers=get_headers(), json=payload, timeout=10)
     except Exception as e:
         print(f"Ошибка отправки в CRM: {e}")
 
     return "ok", 200
 
 # ==========================================
-# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ СПРАВОЧНИКА
+# СПРАВОЧНИК МОДЕЛЕЙ
 # ==========================================
 @app.route('/get-models', methods=['GET'])
 def get_haval_models_dictionary():
-    # Используем базовый URL из окружения
+    if not API_KEY:
+        return "Ошибка: API_KEY не задан в переменных окружения на сервере", 500
+
     url = f"{CRM_BASE_URL}/refModel"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
+        response = requests.get(url, headers=get_headers(), timeout=10)
         
         if response.status_code == 200:
             json_data = response.json()
-            
             if json_data.get('status') == 1 and json_data.get('result'):
                 result_lines = ["=== АКТУАЛЬНЫЕ МОДЕЛИ HAVAL (brand_id: 152) ==="]
                 for model in json_data['result']:
@@ -116,7 +113,7 @@ def get_haval_models_dictionary():
             else:
                 return f"Ошибка API: {json_data.get('errors')}", 400
         else:
-            return f"Ошибка сервера. Код: {response.status_code}\nОтвет: {response.text[:200]}", 500
+            return f"Ошибка сервера CRM. Код: {response.status_code}\nОтвет: {response.text[:200]}", 500
             
     except Exception as e:
         return f"Ошибка выполнения: {str(e)}", 500
