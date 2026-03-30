@@ -2,8 +2,11 @@ meta:
   environment: python
   toolchain:
     name: pip
-    version: 3.11
+    version: 3.8
 build:
   requirementsPath: requirements.txt
 run:
+  # Вместо scriptName используем command для запуска Gunicorn
   command: gunicorn --bind 0.0.0.0:80 main:app
+  persistenceMount: /data
+  containerPort: 80
