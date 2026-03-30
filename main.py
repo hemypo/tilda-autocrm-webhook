@@ -32,7 +32,7 @@ CARS_DICTIONARY = {
 
 def get_headers():
     return {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Basic {API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
@@ -129,7 +129,7 @@ def debug_auth():
     return jsonify({
         "1_key_length": len(API_KEY),
         "2_masked_key": masked_key,
-        "3_header_preview": f"Bearer {masked_key}",
+        "3_header_preview": f"Basic {masked_key}",
         "4_crm_url": CRM_BASE_URL
     }), 200
     
