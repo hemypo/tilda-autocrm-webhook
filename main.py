@@ -11,7 +11,7 @@ app = Flask(__name__)
 # ==========================================
 # НАСТРОЙКИ
 # ==========================================
-CRM_BASE_URL = os.getenv("CRM_BASE_URL", "https://avtomag.autocrm.ru/yii/api").strip()
+CRM_BASE_URL = os.getenv("CRM_BASE_URL", "").strip()
 API_KEY = os.getenv("API_KEY", "").strip()
 
 SALON_ID = 1
@@ -77,7 +77,7 @@ def tilda_webhook():
         else:
             payload["comment"] += f"\nКлиент выбрал авто: {tilda_model}"
 
-    api_url = f"{CRM_BASE_URL}/leads/request"
+    api_url = f"{CRM_BASE_URL}/leads/request/"
     
     try:
         requests.post(api_url, headers=get_headers(), json=payload, timeout=10)
@@ -94,7 +94,7 @@ def get_haval_models_dictionary():
     if not API_KEY:
         return "Ошибка: API_KEY не задан в переменных окружения на сервере", 500
 
-    url = f"{CRM_BASE_URL}/refModel"
+    url = f"{CRM_BASE_URL}/refModel/"
     
     try:
         response = requests.get(url, headers=get_headers(), timeout=10)
@@ -118,5 +118,20 @@ def get_haval_models_dictionary():
     except Exception as e:
         return f"Ошибка выполнения: {str(e)}", 500
 
+@app.route('/debug-auth', methods=['GET'])
+def debug_auth():
+    # Эта функция безопасно покажет, что именно скрипт видит в переменной API_KEY
+    if not API_KEY:
+        return jsonify({"error": "API_KEY пустой"}), 400
+        
+    masked_key = f"{API_KEY[:5]}...{API_KEY[-5:]}" if len(API_KEY) > 10 else "СЛИШКОМ КОРОТКИЙ"
+    
+    return jsonify({
+        "1_key_length": len(API_KEY),
+        "2_masked_key": masked_key,
+        "3_header_preview": f"Bearer {masked_key}",
+        "4_crm_url": CRM_BASE_URL
+    }), 200
+    
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
