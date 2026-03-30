@@ -1,5 +1,5 @@
 import os
-import json
+import re
 import requests
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -9,67 +9,117 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# --- НАСТРОЙКИ API ИЗ ОКРУЖЕНИЯ ---
+# ==========================================
+# НАСТРОЙКИ API ИЗ ОКРУЖЕНИЯ (.env / Amvera)
+# ==========================================
 CRM_BASE_URL = os.getenv("CRM_BASE_URL", "https://avtomag.autocrm.ru/yii/api")
-AUTH_HEADER = os.getenv("AUTH_HEADER")
+API_KEY = os.getenv("API_KEY", "ВАШ_КЛЮЧ_ПО_УМОЛЧАНИЮ_ЕСЛИ_НУЖНО")
 
-# --- БИЗНЕС-НАСТРОЙКИ (Хардкод) ---
-SALON_ID = 1  # ID вашего автосалона
+# Обязательные бизнес-поля (оставляем в коде):
+SALON_ID = 1
+TYPE = 11
+REQUEST_TYPE_ID = 1
+SOURCE_ID = 1
 
-HEADERS = {
-    "Authorization": AUTH_HEADER,
-    "Content-Type": "application/json"
+# Словарь: "Модель из Тильды" : ID в CRM
+CARS_DICTIONARY = {
+    "HAVAL F7x": {"brand_id": 152, "model_id": 17458},
+    "HAVAL F7": {"brand_id": 152, "model_id": 18528}, 
+    "ОБНОВЛЕННЫЙ HAVAL JOLION": {"brand_id": 152, "model_id": 19585},
+    "HAVAL JOLION": {"brand_id": 152, "model_id": 19585},
+    "HAVAL M6": {"brand_id": 152, "model_id": 22307},
+    "HAVAL DARGO X": {"brand_id": 152, "model_id": 21427},
+    "HAVAL DARGO": {"brand_id": 152, "model_id": 21427},
+    "GWM POER": {"brand_id": 152, "model_id": 19584}
 }
 
-@app.route('/', methods=['GET'])
-def health_check():
-    return "Webhook server is running!", 200
+# Формируем заголовки с ключом из окружения
+HEADERS = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+}
 
+# ==========================================
+# ОСНОВНОЙ ВЕБХУК ДЛЯ ТИЛЬДЫ
+# ==========================================
 @app.route('/tilda-webhook', methods=['POST'])
 def tilda_webhook():
-    if not AUTH_HEADER:
-        return jsonify({"error": "Server configuration error: Missing AUTH_HEADER"}), 500
+    if not API_KEY:
+        print("Ошибка: API_KEY не задан в переменных окружения!")
 
-    if request.is_json:
-        tilda_data = request.get_json()
-    else:
-        tilda_data = request.form.to_dict()
+    data = request.get_json() if request.is_json else request.form.to_dict()
+    if not data:
+        data = {}
 
-    if not tilda_data:
-        return jsonify({"error": "No data received"}), 400
+    name = data.get('Имя', 'Без имени')
+    raw_phone = data.get('Телефон', '')
+    tilda_model = data.get('Модель', '').strip()
 
-    crm_payload = {
+    clean_phone = re.sub(r'[^\d+]', '', raw_phone)
+    if clean_phone and clean_phone[0] != '+':
+        clean_phone = '+' + re.sub(r'\D', '', clean_phone)
+
+    payload = {
         "salon_id": SALON_ID,
-        "type": 11,
-        "request_type_id": 1,
-        "first_name": tilda_data.get('Name', 'Не указано (ТИЛЬДА)'),
-        "phone": tilda_data.get('Phone', ''),
-        "email": tilda_data.get('Email', ''),
-        "comment": f"Заявка с сайта. Форма: {tilda_data.get('formname', 'Неизвестная форма')}",
-        "utm_source": tilda_data.get('utm_source', ''),
-        "utm_medium": tilda_data.get('utm_medium', ''),
-        "utm_campaign": tilda_data.get('utm_campaign', '')
+        "type": TYPE,
+        "request_type_id": REQUEST_TYPE_ID,
+        "source_id": SOURCE_ID,
+        "first_name": name,
+        "phone": clean_phone,
+        "consent_processing_personal_information": 1,
+        "consent_obtaining_sms_mailing": 1,
+        "comment": "Заявка с сайта."
     }
 
-    try:
-        response = requests.post(
-            f"{CRM_BASE_URL}/leads/request",
-            headers=HEADERS,
-            data=json.dumps(crm_payload)
-        )
-        
-        result = response.json()
-        
-        if response.status_code == 200 and result.get('status') == 0:
-            return jsonify({"status": "success", "message": "Lead created"}), 200
+    if tilda_model:
+        found_car = CARS_DICTIONARY.get(tilda_model)
+        if found_car:
+            payload["brand_id"] = found_car["brand_id"]
+            payload["model_id"] = found_car["model_id"]
         else:
-            return jsonify({"error": "CRM API Error", "details": result}), 400
+            payload["comment"] += f"\nКлиент выбрал авто: {tilda_model}"
 
+    # Используем базовый URL из окружения
+    api_url = f"{CRM_BASE_URL}/leads/request"
+    
+    try:
+        requests.post(api_url, headers=HEADERS, json=payload, timeout=10)
     except Exception as e:
-        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
+        print(f"Ошибка отправки в CRM: {e}")
+
+    return "ok", 200
+
+# ==========================================
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ СПРАВОЧНИКА
+# ==========================================
+@app.route('/get-models', methods=['GET'])
+def get_haval_models_dictionary():
+    # Используем базовый URL из окружения
+    url = f"{CRM_BASE_URL}/refModel"
+    
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        
+        if response.status_code == 200:
+            json_data = response.json()
+            
+            if json_data.get('status') == 1 and json_data.get('result'):
+                result_lines = ["=== АКТУАЛЬНЫЕ МОДЕЛИ HAVAL (brand_id: 152) ==="]
+                for model in json_data['result']:
+                    if str(model.get('brand_id')) == "152" and str(model.get('is_deleted')) == "0":
+                        line = f'"{model.get("name")}": {{ "brand_id": 152, "model_id": {model.get("id")} }},  // Актуальность: {model.get("is_recent")}'
+                        result_lines.append(line)
+                
+                result_lines.append("===============================================")
+                return "\n".join(result_lines), 200, {'Content-Type': 'text/plain; charset=utf-8'}
+            else:
+                return f"Ошибка API: {json_data.get('errors')}", 400
+        else:
+            return f"Ошибка сервера. Код: {response.status_code}\nОтвет: {response.text[:200]}", 500
+            
+    except Exception as e:
+        return f"Ошибка выполнения: {str(e)}", 500
 
 if __name__ == '__main__':
-    # Получаем порт из переменной окружения платформы, 
-    # либо используем 5000 для локального тестирования
-    port = int(os.environ.get("PORT", 80))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=80)
