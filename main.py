@@ -42,7 +42,7 @@ def tilda_webhook():
         "salon_id": SALON_ID,
         "type": 11,
         "request_type_id": 1,
-        "first_name": tilda_data.get('Name', 'Не указано (Тильда)'),
+        "first_name": tilda_data.get('Name', 'Не указано (ТИЛЬДА)'),
         "phone": tilda_data.get('Phone', ''),
         "email": tilda_data.get('Email', ''),
         "comment": f"Заявка с сайта. Форма: {tilda_data.get('formname', 'Неизвестная форма')}",
