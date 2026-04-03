@@ -11,8 +11,6 @@ app = Flask(__name__)
 # ==========================================
 # НАСТРОЙКИ
 # ==========================================
-# .rstrip('/') гарантирует, что даже если вы вставите ссылку со слэшем на конце в Amvera, 
-# скрипт сам его отрежет, чтобы не было задвоений
 CRM_BASE_URL = os.getenv("CRM_BASE_URL", "").strip().rstrip('/')
 API_KEY = os.getenv("API_KEY", "").strip()
 
@@ -21,7 +19,6 @@ TYPE = 11
 REQUEST_TYPE_ID = 1
 SOURCE_ID = 1
 
-# Обновленный словарь актуальных моделей
 CARS_DICTIONARY = {
     "HAVAL F7": {"brand_id": 152, "model_id": 17458},
     "HAVAL F7x": {"brand_id": 152, "model_id": 18528}, 
@@ -43,8 +40,7 @@ def get_headers():
     return {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "Accept": "application/json"
     }
 
 # ==========================================
@@ -53,7 +49,7 @@ def get_headers():
 @app.route('/tilda-webhook', methods=['POST'])
 def tilda_webhook():
     if not API_KEY:
-        print("ВНИМАНИЕ: API_KEY пустой! Проверьте переменные окружения в Amvera.")
+        print("ВНИМАНИЕ: API_KEY пустой!")
 
     data = request.get_json() if request.is_json else request.form.to_dict()
     if not data:
@@ -85,17 +81,16 @@ def tilda_webhook():
         if found_car:
             payload["brand_id"] = found_car["brand_id"]
             payload["model_id"] = found_car["model_id"]
-            
             if tilda_model.upper() == "HAVAL DARGO X":
                 payload["comment"] += "\nУточнение по модели: речь о DARGO X"
         else:
             payload["comment"] += f"\nКлиент выбрал авто: {tilda_model}"
 
-    # УБРАЛИ слэш на конце!
     api_url = f"{CRM_BASE_URL}/leads/request"
     
     try:
-        requests.post(api_url, headers=get_headers(), json=payload, timeout=10)
+        # allow_redirects=False запрещает переход на HTML-страницы логина
+        requests.post(api_url, headers=get_headers(), json=payload, timeout=10, allow_redirects=False)
     except Exception as e:
         print(f"Ошибка отправки в CRM: {e}")
 
@@ -109,19 +104,14 @@ def get_haval_models_dictionary():
     if not API_KEY:
         return "Ошибка: API_KEY не задан в переменных окружения на сервере", 500
 
-    # УБРАЛИ слэш на конце!
     url = f"{CRM_BASE_URL}/refModel"
     
     try:
-        response = requests.get(url, headers=get_headers(), timeout=10)
+        # allow_redirects=False вернет реальный код ошибки, если токен не прошел
+        response = requests.get(url, headers=get_headers(), timeout=10, allow_redirects=False)
         
         if response.status_code == 200:
-            # Безопасная попытка разобрать JSON
-            try:
-                json_data = response.json()
-            except Exception as parse_error:
-                return f"Сервер вернул не JSON, а HTML-страницу. Ответ сервера:\n\n{response.text[:500]}", 500
-
+            json_data = response.json()
             if json_data.get('status') == 1 and json_data.get('result'):
                 result_lines = ["=== АКТУАЛЬНЫЕ МОДЕЛИ HAVAL (brand_id: 152) ==="]
                 for model in json_data['result']:
@@ -133,6 +123,8 @@ def get_haval_models_dictionary():
                 return "\n".join(result_lines), 200, {'Content-Type': 'text/plain; charset=utf-8'}
             else:
                 return f"Ошибка API: {json_data.get('errors')}", 400
+        elif response.status_code in [301, 302]:
+             return f"Сервер пытается сделать редирект на: {response.headers.get('Location')}. Скорее всего токен не принят.", 401
         else:
             return f"Ошибка сервера CRM. Код: {response.status_code}\nОтвет: {response.text[:200]}", 500
             
@@ -142,7 +134,7 @@ def get_haval_models_dictionary():
 @app.route('/debug-auth', methods=['GET'])
 def debug_auth():
     if not API_KEY:
-        return jsonify({"error": "API_KEY пустой"}), 400
+        return jsonify({"error": "API_KEY пустой. Проверьте переменные Amvera!"}), 400
         
     masked_key = f"{API_KEY[:5]}...{API_KEY[-5:]}" if len(API_KEY) > 10 else "СЛИШКОМ КОРОТКИЙ"
     
