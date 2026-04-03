@@ -11,7 +11,9 @@ app = Flask(__name__)
 # ==========================================
 # НАСТРОЙКИ
 # ==========================================
-CRM_BASE_URL = os.getenv("CRM_BASE_URL", "").strip()
+# .rstrip('/') гарантирует, что даже если вы вставите ссылку со слэшем на конце в Amvera, 
+# скрипт сам его отрежет, чтобы не было задвоений
+CRM_BASE_URL = os.getenv("CRM_BASE_URL", "").strip().rstrip('/')
 API_KEY = os.getenv("API_KEY", "").strip()
 
 SALON_ID = 1
@@ -21,15 +23,20 @@ SOURCE_ID = 1
 
 # Обновленный словарь актуальных моделей
 CARS_DICTIONARY = {
-    # Основные модели
     "HAVAL F7": {"brand_id": 152, "model_id": 17458},
     "HAVAL F7x": {"brand_id": 152, "model_id": 18528}, 
     "HAVAL JOLION": {"brand_id": 152, "model_id": 19585},
     "ОБНОВЛЕННЫЙ HAVAL JOLION": {"brand_id": 152, "model_id": 19585},
     "HAVAL DARGO": {"brand_id": 152, "model_id": 21427},
-    "HAVAL DARGO X": {"brand_id": 152, "model_id": 21427}, # DARGO X падает в общую карточку DARGO
-    "HAVAL M6": {"brand_id": 152, "model_id": 22307},    # Пикапы
-    "GWM POER": {"brand_id": 152, "model_id": 19584}
+    "HAVAL DARGO X": {"brand_id": 152, "model_id": 21427},
+    "HAVAL M6": {"brand_id": 152, "model_id": 22307},
+    "GWM POER": {"brand_id": 152, "model_id": 19584},
+    "GWM KINGKONG POER": {"brand_id": 152, "model_id": 22131},
+    "GWM Wingle 7": {"brand_id": 152, "model_id": 18955},
+    "HAVAL H9": {"brand_id": 152, "model_id": 2368},
+    "HAVAL H5": {"brand_id": 152, "model_id": 18661},
+    "HAVAL H6": {"brand_id": 152, "model_id": 2364},
+    "HAVAL H2": {"brand_id": 152, "model_id": 2360}
 }
 
 def get_headers():
@@ -37,7 +44,6 @@ def get_headers():
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        # Маскируемся под браузер, чтобы обходить файрволы CRM
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
@@ -80,13 +86,13 @@ def tilda_webhook():
             payload["brand_id"] = found_car["brand_id"]
             payload["model_id"] = found_car["model_id"]
             
-            # --- Уточнение для DARGO X ---
             if tilda_model.upper() == "HAVAL DARGO X":
                 payload["comment"] += "\nУточнение по модели: речь о DARGO X"
         else:
             payload["comment"] += f"\nКлиент выбрал авто: {tilda_model}"
 
-    api_url = f"{CRM_BASE_URL}/leads/request/"
+    # УБРАЛИ слэш на конце!
+    api_url = f"{CRM_BASE_URL}/leads/request"
     
     try:
         requests.post(api_url, headers=get_headers(), json=payload, timeout=10)
@@ -103,13 +109,19 @@ def get_haval_models_dictionary():
     if not API_KEY:
         return "Ошибка: API_KEY не задан в переменных окружения на сервере", 500
 
-    url = f"{CRM_BASE_URL}/refModel/"
+    # УБРАЛИ слэш на конце!
+    url = f"{CRM_BASE_URL}/refModel"
     
     try:
         response = requests.get(url, headers=get_headers(), timeout=10)
         
         if response.status_code == 200:
-            json_data = response.json()
+            # Безопасная попытка разобрать JSON
+            try:
+                json_data = response.json()
+            except Exception as parse_error:
+                return f"Сервер вернул не JSON, а HTML-страницу. Ответ сервера:\n\n{response.text[:500]}", 500
+
             if json_data.get('status') == 1 and json_data.get('result'):
                 result_lines = ["=== АКТУАЛЬНЫЕ МОДЕЛИ HAVAL (brand_id: 152) ==="]
                 for model in json_data['result']:
@@ -127,9 +139,6 @@ def get_haval_models_dictionary():
     except Exception as e:
         return f"Ошибка выполнения: {str(e)}", 500
 
-# ==========================================
-# ОТЛАДОЧНЫЙ ЭНДПОИНТ
-# ==========================================
 @app.route('/debug-auth', methods=['GET'])
 def debug_auth():
     if not API_KEY:
