@@ -55,9 +55,10 @@ def tilda_webhook():
     if not data:
         data = {}
 
-    name = data.get('Имя', 'Без имени')
-    raw_phone = data.get('Телефон', '')
-    tilda_model = data.get('Модель', '').strip()
+    # Используем ( ... or '' ), чтобы защититься от null-значений из Тильды
+    name = (data.get('Имя') or 'Без имени').strip()
+    raw_phone = str(data.get('Телефон') or '')
+    tilda_model = str(data.get('Модель') or '').strip()
 
     clean_phone = re.sub(r'[^\d+]', '', raw_phone)
     if clean_phone and clean_phone[0] != '+':
@@ -89,7 +90,6 @@ def tilda_webhook():
     api_url = f"{CRM_BASE_URL}/leads/request"
     
     try:
-        # allow_redirects=False запрещает переход на HTML-страницы логина
         requests.post(api_url, headers=get_headers(), json=payload, timeout=10, allow_redirects=False)
     except Exception as e:
         print(f"Ошибка отправки в CRM: {e}")
@@ -107,7 +107,6 @@ def get_haval_models_dictionary():
     url = f"{CRM_BASE_URL}/refModel"
     
     try:
-        # allow_redirects=False вернет реальный код ошибки, если токен не прошел
         response = requests.get(url, headers=get_headers(), timeout=10, allow_redirects=False)
         
         if response.status_code == 200:
